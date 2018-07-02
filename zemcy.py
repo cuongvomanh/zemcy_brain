@@ -10,9 +10,9 @@ if PY3:
 
 import numpy as np
 import cv2 as cv
-import video
+# import video
 import math
-from common import nothing, getsize
+# from common import nothing, getsize
 def cut(frame, unit):
     (x,y), (w,h) = unit
     return frame.copy()[y - h//2: y + h//2, x - w//2: x + w//2]
