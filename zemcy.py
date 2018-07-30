@@ -4,20 +4,23 @@ import sys
 PY3 = sys.version_info[0] == 3
 DEBUG = False
 TEST = True
+STANDARD_SIZE = '480x234'
 STANDARD_AREA = 480*234
 if PY3:
     xrange = range
 
 import numpy as np
 import cv2 as cv
-# import video
+import video
 import math
 # from common import nothing, getsize
+sys.path.append('/home/cuong/VNG/National_Identification_Card_Reader/src')
+import support_lib
 def cut(frame, unit):
-    (x,y), (w,h) = unit
-    return frame.copy()[y - h//2: y + h//2, x - w//2: x + w//2]
-def rect_to_unit(rect):
-    topleft_x, topleft_y, w, h = rect
+    (center_x,center_y), (w,h) = unit
+    return frame.copy()[center_y - h//2: center_y + h//2, center_x - w//2: center_x + w//2]
+def window_to_unit(window):
+    topleft_x, topleft_y, w, h = window
     unit = (topleft_x + int(w/2), topleft_y + int(h/2)), (w, h)
     return unit
 def unit_to_rect(unit):
@@ -58,6 +61,15 @@ def box_to_box(box, shape):
     center_x, center_y, w, h = topleft_x + w//2, topleft_y + h//2, w, h
     unit = (center_x,center_y), (w,h)
     return unit
+def floodFill_return_window(img, floodFill_mask, seed_pt, low, high, color = (255, 255, 255), flags = cv.FLOODFILL_FIXED_RANGE):
+    cv.floodFill(img, floodFill_mask, seed_pt, (255, 255, 255), (low,)*3, (high,)*3, flags)
+    # none_margins_mask = floodFill_mask[1:-1, 1:-1]
+    # pixelpoints = cv.findNonZero(none_margins_mask)
+    # window = support_lib.points_to_window(pixelpoints)
+    mask = cv.inRange(img, np.array([255,255,255]), np.array([255,255,255]))
+    pixelpoints = cv.findNonZero(mask)
+    window = support_lib.points_to_window(pixelpoints)
+    return window
 if __name__ == '__main__':
     import sys
     # print(__doc__)
@@ -80,7 +92,7 @@ if __name__ == '__main__':
         cv.imshow('frame', frame)
         frame_resolution = tuple(frame.shape[1::-1])
         w_frame, h_frame = frame_resolution
-        x, y, w, h = w_frame/2, h_frame/2, w_frame/2, h_frame/2 
+        x, y, w, h = w_frame//2, h_frame//2, w_frame//2, h_frame//2 
         unit = ((x,y), (w,h))
         if DEBUG and TEST:
             print(unit)

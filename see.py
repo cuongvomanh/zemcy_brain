@@ -7,12 +7,14 @@ import cv2 as cv
 import numpy as np
 PY3 = sys.version_info[0] == 3
 STANDARD_AREA = 32*32
-DEBUG = True
+DEBUG = False
 if PY3:
     xrange = range
-
+sys.path.append('/home/cuong/Mymind/zemcy')
 import zemcy
 import video
+sys.path.append('/home/cuong/VNG/National_Identification_Card_Reader/src')
+import support_lib
 
 def draw_rectangles(img, rects, color, thinkness):
     image = img.copy()
@@ -28,8 +30,7 @@ class App(object):
         cv.namedWindow('display_frame')
         cv.setMouseCallback('display_frame', self.onmouse)
         cv.setMouseCallback('display_frame', self.onmouse)
-        cv.createTrackbar('lo', 'display_frame', 20, 255, self.update_track_window)
-        cv.createTrackbar('hi', 'display_frame', 20, 255, self.update_track_window)
+        cv.createTrackbar('distance_threshold', 'display_frame', 50, 255, self.update_track_window)
         # self.track_window = (267, 148, 137, 332)
         w, h = self._resolution = self.origin_frame.shape[1::-1]
         if DEBUG:
@@ -46,8 +47,14 @@ class App(object):
         self.drag_start = None
         self.floodFill_mask = np.zeros((h+2, w+2), np.uint8)
         self.recently_not_none_track_box = None
-        self.focus_window = None
+        self.focus_window = self.track_window
         self.display_frame = self.origin_frame
+        topleft_x, topleft_y, window_w, window_h = self.track_window
+        self.seed_pt = topleft_x + window_w//2, topleft_y + window_h//2
+    def set_seed_pt(self, seed_pt):
+        self.seed_pt = seed_pt
+        self.update_track_window(seed_pt = seed_pt)
+
     def onmouse(self, event, x, y, flags, param):
         if event == cv.EVENT_LBUTTONDOWN:
             self.drag_start = (x, y)
@@ -58,7 +65,11 @@ class App(object):
             ymax = max(y, self.drag_start[1])
         if event == cv.EVENT_LBUTTONUP:
             self.drag_start = None
-            self.track_window = (xmin, ymin, xmax - xmin, ymax - ymin)
+            if xmax-xmin != 0 and ymax-ymin != 0:
+                self.track_window = (xmin, ymin, xmax - xmin, ymax - ymin)
+        if flags & cv.EVENT_FLAG_LBUTTON:
+            seed_pt = (x, y)
+            self.update_track_window(seed_pt = seed_pt)
         
     def draw_hsv(self,flow, seed_pt=None):
         h, w = flow.shape[:2]
@@ -85,11 +96,11 @@ class App(object):
             return None
         rect = _x, _y, w, h = self.focus_window
         if w > 2 and h > 2:
-            cut_img = zemcy.cut(self.origin_frame, zemcy.rect_to_unit(rect))
+            cut_img = zemcy.cut(self.origin_frame, zemcy.window_to_unit(rect))
             resized_cut_img = zemcy.resize_img(cut_img, STANDARD_AREA)
             return resized_cut_img
         return None
-    def update_track_window(self, dummy=None):
+    def update_track_window(self, seed_pt = None, dummy=None):
         dst = cv.calcBackProject([cv.cvtColor(self.move_degree_frame, cv.COLOR_HSV2BGR) ],[0],self.ROI_HIST,[0,180],1)
         # apply meanshift to get the new location
         cam_shift_mask = cv.inRange(self.move_degree_frame, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
@@ -97,23 +108,25 @@ class App(object):
         self.track_box, self.track_window = cv.CamShift(dst, self.track_window, self.TERM_CRIT)
         if self.is_something_move():
             self.recently_not_none_track_box = self.track_box
-        if self.recently_not_none_track_box:
+        else:
             if DEBUG:
                 print('Everything is not moving now!')
+        if seed_pt is not None and type(seed_pt) == tuple:
+            self.seed_pt = seed_pt
+        elif self.recently_not_none_track_box:
             (center_x, center_y), (_,_), _ = self.recently_not_none_track_box
-            seed_pt = int(center_x), int(center_y)
             if DEBUG:
                 print('center_x, center_y = ',center_x, center_y)
-            lo = cv.getTrackbarPos('lo', 'display_frame')
-            hi = cv.getTrackbarPos('hi', 'display_frame')
-            self.floodFill_mask[:] = 0
-
-            cv.floodFill(self.display_frame, self.floodFill_mask, seed_pt, (255, 255, 255), (lo,)*3, (hi,)*3, cv.FLOODFILL_FIXED_RANGE)
-            none_margins_mask = self.floodFill_mask[1:-1, 1:-1]
-            pixelpoints = cv.findNonZero(none_margins_mask)
-            rect_x,rect_y,rect_w,rect_h = cv.boundingRect(pixelpoints)
-            self.focus_window = rect_x, rect_y, rect_w,rect_h
-            cv.rectangle(self.display_frame,(rect_x,rect_y),(rect_x+rect_w,rect_y+rect_h),(255,0,0),3)
+            self.seed_pt = int(center_x), int(center_y)
+        
+        distance_threshold = cv.getTrackbarPos('distance_threshold','display_frame')
+        self.floodFill_mask[:] = 0
+        cv.floodFill(self.display_frame, self.floodFill_mask, self.seed_pt, (255, 255, 255), (distance_threshold,)*3, (distance_threshold,)*3, cv.FLOODFILL_FIXED_RANGE)
+        none_margins_mask = self.floodFill_mask[1:-1, 1:-1]
+        pixelpoints = cv.findNonZero(none_margins_mask)
+        rect_x,rect_y,rect_w,rect_h = cv.boundingRect(pixelpoints)
+        self.focus_window = rect_x, rect_y, rect_w,rect_h
+        cv.rectangle(self.display_frame,(rect_x,rect_y),(rect_x+rect_w,rect_y+rect_h),(255,0,0),3)
         if DEBUG:
             print('track_box')
             print(self.track_box)
@@ -161,15 +174,18 @@ class App(object):
             ch = cv.waitKey(5)
             if ch == 27:
                 break
-        cv.destroyAllWindows()
-        plt.show()
+        # cv.destroyAllWindows()
+        # plt.show()
 
 if __name__ == '__main__':
     import sys
+    import urllib
     try:
         video_src = sys.argv[1]
     except:
-        video_src = 0
+        size = zemcy.STANDARD_SIZE
+        # video_src = 0
+        video_src = 'synth:bg=./data/lena.jpg:size='+size
     print(__doc__)
     App(video_src).run()
 
